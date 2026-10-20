@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Neon Rift: Archer</title>
+<style>
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050713;color:#fff;font-family:Inter,system-ui,sans-serif}
+canvas{display:block;width:100vw;height:100vh;touch-action:none}
+#hud{position:fixed;inset:0;pointer-events:none}
+.top{display:flex;justify-content:space-between;padding:14px 18px;gap:12px}
+.card{background:rgba(5,8,22,.72);border:1px solid rgba(110,180,255,.25);box-shadow:0 8px 30px #0008;border-radius:14px;padding:9px 12px;backdrop-filter:blur(8px)}
+#stats{min-width:205px}.name{font-weight:800;letter-spacing:.08em}.bar{height:8px;background:#182039;border-radius:8px;margin-top:6px;overflow:hidden}.hp{height:100%;background:linear-gradient(90deg,#36ff9a,#00b7ff);width:100%}.shield{height:100%;background:linear-gradient(90deg,#57c7ff,#7d5cff);width:75%}
+#wave{text-align:center}.big{font-size:22px;font-weight:900}.small{font-size:11px;opacity:.72}
+#rarity{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:420px}.rar{font-size:10px;font-weight:900;padding:5px 7px;border-radius:7px;border:1px solid currentColor;opacity:.8}
+#bottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:end;gap:10px}
+.slot{width:66px;height:58px;border-radius:12px;background:#090d20d9;border:1px solid #ffffff30;text-align:center;padding:7px;font-size:10px}.slot b{display:block;font-size:12px;margin-top:4px}
+#controls{position:absolute;inset:0}
+#fire{position:absolute;right:28px;bottom:28px;width:112px;height:112px;border-radius:50%;border:2px solid #6ee7ff;background:radial-gradient(circle,#1a5d9c99,#07132ddd);color:#fff;font-weight:900;font-size:16px;box-shadow:0 0 28px #00cfff77;pointer-events:auto}
+#dash{position:absolute;right:155px;bottom:45px;width:68px;height:68px;border-radius:50%;border:1px solid #a879ff;background:#130d2bcc;color:white;font-weight:800;pointer-events:auto}
+#joy{position:absolute;left:24px;bottom:30px;width:135px;height:135px;border-radius:50%;border:1px solid #6ee7ff55;background:#071022aa;pointer-events:auto}
+#knob{position:absolute;width:58px;height:58px;left:38px;top:38px;border-radius:50%;background:#6ee7ff55;border:1px solid #a8efff}
+#message{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;display:none}.panel{background:#070b1eea;border:1px solid #6ee7ff66;border-radius:20px;padding:28px;box-shadow:0 0 60px #000}.panel h1{margin:0 0 8px;font-size:34px;letter-spacing:.08em}.panel p{opacity:.75}.btn{border:0;border-radius:12px;padding:13px 24px;background:linear-gradient(90deg,#16d9ff,#8b5cff);color:#fff;font-weight:900}
+@media(max-width:700px){.top{padding:9px}.card{padding:7px 9px}.rar{display:none}#stats{min-width:160px}.slot{width:54px;height:50px}.slot:nth-child(n+4){display:none}#bottom{bottom:7px}.big{font-size:18px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div class="top">
+    <div class="card" id="stats"><div class="name">RIFTWALKER <span id="level">LV. 1</span></div><div class="bar"><div class="hp" id="hp"></div></div><div class="bar"><div class="shield" id="shield"></div></div></div>
+    <div class="card" id="wave"><div class="big" id="waveText">WAVE 1 / 12</div><div class="small" id="objective">CLEAR THE RIFT</div></div>
+    <div id="rarity" class="card"></div>
+  </div>
+  <div id="bottom">
+    <div class="slot">BOW<b id="bowName">PULSEBOW</b></div>
+    <div class="slot">ARROWS<b id="ammo">∞</b></div>
+    <div class="slot">CRITS<b id="crit">0%</b></div>
+  </div>
+  <div id="controls">
+    <div id="joy"><div id="knob"></div></div>
+    <button id="dash">DASH</button>
+    <button id="fire">DRAW<br>ARROW</button>
+  </div>
+  <div id="message"><div class="panel"><h1 id="msgTitle">NEON RIFT</h1><p id="msgBody">Draw your bow and survive the Rift.</p><button class="btn" id="start">START GAME</button></div></div>
+</div>
+<script>
+const c=document.getElementById('game'),ctx=c.getContext('2d');
+let W,H,DPR,keys={},mouse={x:0,y:0,down:false},joy={x:0,y:0},running=false,last=0,shake=0;
+const rarities=[
+ ['COMMON','#b9c2d0',1],['UNCOMMON','#35e58b',1.2],['RARE','#42a5ff',1.5],['EPIC','#b56cff',1.9],
+ ['LEGENDARY','#ffb52e',2.4],['MYTHIC','#ff4e91',3.1],['EXOTIC','#20f3ff',4.0],['EXILED','#ffffff',5.2]
+];
+const bows=['PULSEBOW','VOID LONGBOW','RIFT RECURVE','STARBREAKER','SOLAR BOW','MYTHIC REAPER','EXOTIC ARC','EXILED ZERO'];
+let p,enemies=[],arrows=[],particles=[],pickups=[],wave=1,score=0,level=1,spawnLeft=0,spawnTimer=0,waveDelay=0,fireHeld=false,lastShot=0,dashCD=0,crit=0;
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*DPR;c.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener('resize',resize);resize();
+function reset(){p={x:W/2,y:H/2,r:18,hp:100,shield:75,speed:245,damage:22,angle:0,inv:0};enemies=[];arrows=[];particles=[];pickups=[];wave=1;score=0;level=1;spawnLeft=7;spawnTimer=0;waveDelay=0;crit=0;running=true;last=performance.now();document.getElementById('message').style.display='none';updateUI()}
+function rarityIndex(){return Math.min(7,Math.floor((wave-1)/1.5))}
+function updateUI(){let i=rarityIndex();document.getElementById('level').textContent='LV. '+level;document.getElementById('hp').style.width=p.hp+'%';document.getElementById('shield').style.width=p.shield/1.5+'%';document.getElementById('waveText').textContent=`WAVE ${wave} / 12`;document.getElementById('bowName').textContent=bows[i];document.getElementById('crit').textContent=crit+'%';document.getElementById('objective').textContent=enemies.length?`ENEMIES ${enemies.length}`:(spawnLeft?'RIFT OPENING':'WAVE CLEAR')}
+const rarityHud=document.getElementById('rarity');rarityHud.innerHTML=rarities.map((r,i)=>`<span class="rar" style="color:${r[1]}">${r[0]}</span>`).join('');
+function burst(x,y,col,n=8){for(let i=0;i<n;i++){let a=Math.random()*Math.PI*2,s=40+Math.random()*180;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.4+Math.random()*.6,col})}}
+function spawn(){let side=Math.floor(Math.random()*4),x=side<2?(side?W+30:-30):Math.random()*W,y=side>=2?(side==3?H+30:-30):Math.random()*H;let elite=Math.random()<Math.min(.08+wave*.025,.32);let hp=(55+wave*17)*(elite?2.7:1),r=elite?25:15;enemies.push({x,y,r,hp,max:hp,speed:(55+wave*4)*(elite?.72:1),elite,hit:0})}
+function shoot(){let now=performance.now();if(now-lastShot<230)return;lastShot=now;let a=p.angle, i=rarityIndex(),power=rarities[i][2], critShot=Math.random()<.1+i*.018;let dmg=p.damage*power*(critShot?2.2:1);arrows.push({x:p.x+Math.cos(a)*25,y:p.y+Math.sin(a)*25,vx:Math.cos(a)*720,vy:Math.sin(a)*720,dmg,life:1.2,crit:critShot,col:rarities[i][1]});burst(p.x+Math.cos(a)*24,p.y+Math.sin(a)*24,'#8df5ff',3);if(critShot)crit=Math.min(99,crit+1);updateUI()}
+function dash(){if(dashCD>0)return;dashCD=1.0;let dx=joy.x||Math.cos(p.angle),dy=joy.y||Math.sin(p.angle);if(Math.hypot(dx,dy)<.2){dx=Math.cos(p.angle);dy=Math.sin(p.angle)}p.x+=dx*120;p.y+=dy*120;p.inv=.35;burst(p.x,p.y,'#a76cff',18)}
+function damagePlayer(n){if(p.inv>0)return;let s=Math.min(p.shield,n);p.shield-=s;n-=s;p.hp-=n;p.inv=.5;shake=8;burst(p.x,p.y,'#ff4d7d',10);if(p.hp<=0){running=false;showMsg('RIFT FALLEN',`Score ${score.toLocaleString()} • Reached wave ${wave}`,'RETRY')}}
+function update(dt){if(!running)return;p.inv-=dt;dashCD=Math.max(0,dashCD-dt);p.x+=joy.x*p.speed*dt;p.y+=joy.y*p.speed*dt;p.x=Math.max(25,Math.min(W-25,p.x));p.y=Math.max(70,Math.min(H-35,p.y));
+ if(mouse.x||mouse.y){p.angle=Math.atan2(mouse.y-p.y,mouse.x-p.x)}
+ if(fireHeld)shoot();
+ if(spawnLeft>0){spawnTimer-=dt;if(spawnTimer<=0){spawn();spawnLeft--;spawnTimer=Math.max(.28,.75-wave*.025)}}
+ else if(!enemies.length){waveDelay+=dt;if(waveDelay>1.4){if(wave>=12){running=false;showMsg('RIFT CONQUERED',`Final score ${score.toLocaleString()}`,'PLAY AGAIN');return}wave++;spawnLeft=6+wave*2;waveDelay=0;level=Math.min(20,level+1);p.hp=Math.min(100,p.hp+12);p.shield=Math.min(75,p.shield+15);}}
+ for(let a of arrows){a.x+=a.vx*dt;a.y+=a.vy*dt;a.life-=dt}
+ arrows=arrows.filter(a=>a.life>0&&a.x>-30&&a.x<W+30&&a.y>40&&a.y<H+30);
+ for(let e of enemies){let dx=p.x-e.x,dy=p.y-e.y,d=Math.hypot(dx,dy)||1;e.x+=dx/d*e.speed*dt;e.y+=dy/d*e.speed*dt;e.hit=Math.max(0,e.hit-dt);if(d<e.r+p.r)damagePlayer(e.elite?22:11)}
+ for(let a of arrows){for(let e of enemies){if(e.dead)continue;let d=Math.hypot(a.x-e.x,a.y-e.y);if(d<e.r+6){e.hp-=a.dmg;e.hit=.1;a.life=0;burst(a.x,a.y,a.col,7);if(e.hp<=0){e.dead=true;score+=Math.round(100*(e.elite?4:1)*rarities[rarityIndex()][2]);if(Math.random()<.16)pickups.push({x:e.x,y:e.y,type:Math.random()<.5?'hp':'shield',life:8});}}}}
+ enemies=enemies.filter(e=>!e.dead);
+ for(let q of pickups){q.life-=dt;if(Math.hypot(q.x-p.x,q.y-p.y)<28){if(q.type==='hp')p.hp=Math.min(100,p.hp+22);else p.shield=Math.min(75,p.shield+28);q.life=0;burst(q.x,q.y,q.type==='hp'?'#36ff9a':'#5ac8ff',12)}}
+ pickups=pickups.filter(q=>q.life>0);
+ for(let q of particles){q.x+=q.vx*dt;q.y+=q.vy*dt;q.vx*=.96;q.vy*=.96;q.life-=dt}
+ particles=particles.filter(q=>q.life>0);shake*=.88;updateUI()}
+function draw(){ctx.clearRect(0,0,W,H);let sx=(Math.random()-.5)*shake,sy=(Math.random()-.5)*shake;ctx.save();ctx.translate(sx,sy);
+ let g=ctx.createRadialGradient(W*.5,H*.45,20,W*.5,H*.45,Math.max(W,H)*.75);g.addColorStop(0,'#17265d');g.addColorStop(.5,'#080d28');g.addColorStop(1,'#03050d');ctx.fillStyle=g;ctx.fillRect(-20,-20,W+40,H+40);
+ // grid / arena
+ ctx.strokeStyle='#2c62a022';ctx.lineWidth=1;let grid=48;for(let x=0;x<W;x+=grid){ctx.beginPath();ctx.moveTo(x,70);ctx.lineTo(x,H);ctx.stroke()}for(let y=80;y<H;y+=grid){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+ // rift
+ let rg=ctx.createRadialGradient(W/2,H/2,10,W/2,H/2,230);rg.addColorStop(0,'#8d4dff33');rg.addColorStop(1,'transparent');ctx.fillStyle=rg;ctx.beginPath();ctx.arc(W/2,H/2,230,0,Math.PI*2);ctx.fill();
+ for(let q of pickups){ctx.save();ctx.translate(q.x,q.y);ctx.rotate(performance.now()/500);ctx.fillStyle=q.type==='hp'?'#36ff9a':'#58c9ff';ctx.shadowBlur=20;ctx.shadowColor=ctx.fillStyle;ctx.fillRect(-8,-8,16,16);ctx.restore()}
+ for(let a of arrows){ctx.strokeStyle=a.col;ctx.shadowBlur=16;ctx.shadowColor=a.col;ctx.lineWidth=a.crit?5:3;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(a.x-a.vx*.035,a.y-a.vy*.035);ctx.stroke();ctx.shadowBlur=0}
+ for(let e of enemies){ctx.save();ctx.translate(e.x,e.y);ctx.rotate(Math.atan2(p.y-e.y,p.x-e.x));ctx.shadowBlur=e.elite?25:12;ctx.shadowColor=e.elite?'#ff3fd2':'#ff4d68';ctx.fillStyle=e.elite?'#64206e':'#35183e';ctx.strokeStyle=e.elite?'#ff70e7':'#ff5d79';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle='#ff416d';ctx.fillRect(5,-4,9,8);ctx.restore();ctx.fillStyle='#1a1025';ctx.fillRect(e.x-e.r,e.y-e.r-10,e.r*2,4);ctx.fillStyle=e.elite?'#ff4ee8':'#ff5275';ctx.fillRect(e.x-e.r,e.y-e.r-10,e.r*2*(e.hp/e.max),4)}
+ // player
+ ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.angle);ctx.shadowBlur=22;ctx.shadowColor='#39ddff';ctx.fillStyle='#08182d';ctx.strokeStyle='#68efff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,18,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.strokeStyle='#b9fbff';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(8,-10);ctx.quadraticCurveTo(28,0,8,10);ctx.stroke();ctx.beginPath();ctx.moveTo(7,-12);ctx.lineTo(7,12);ctx.stroke();ctx.restore();
+ for(let q of particles){ctx.globalAlpha=Math.max(0,q.life*1.5);ctx.fillStyle=q.col;ctx.fillRect(q.x-2,q.y-2,4,4);ctx.globalAlpha=1}
+ ctx.restore()}
+function loop(t){let dt=Math.min(.033,(t-last)/1000);last=t;update(dt);draw();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function showMsg(title,body,button){document.getElementById('msgTitle').textContent=title;document.getElementById('msgBody').textContent=body;document.getElementById('start').textContent=button;document.getElementById('message').style.display='block'}
+document.getElementById('start').onclick=reset;
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(e.key===' ')shoot();if(e.key.toLowerCase()==='e')dash();if(e.key.toLowerCase()==='r'&&!running)reset()});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+c.addEventListener('pointermove',e=>{mouse.x=e.clientX;mouse.y=e.clientY});
+c.addEventListener('pointerdown',e=>{mouse.x=e.clientX;mouse.y=e.clientY;fireHeld=true});
+c.addEventListener('pointerup',()=>fireHeld=false);
+const joyEl=document.getElementById('joy'),knob=document.getElementById('knob');let joyId=null;
+joyEl.addEventListener('pointerdown',e=>{joyId=e.pointerId;joyEl.setPointerCapture(joyId);moveJoy(e)});
+joyEl.addEventListener('pointermove',e=>{if(e.pointerId===joyId)moveJoy(e)});
+joyEl.addEventListener('pointerup',()=>{joy.x=joy.y=0;knob.style.transform='translate(0,0)';joyId=null});
+function moveJoy(e){let r=joyEl.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2),m=Math.hypot(dx,dy),max=42;if(m>max){dx=dx/m*max;dy=dy/m*max}joy.x=dx/max;joy.y=dy/max;knob.style.transform=`translate(${dx}px,${dy}px)`;if(Math.hypot(joy.x,joy.y)>.2)p.angle=Math.atan2(joy.y,joy.x)}
+document.getElementById('fire').addEventListener('pointerdown',e=>{e.preventDefault();fireHeld=true;shoot()});
+document.getElementById('fire').addEventListener('pointerup',()=>fireHeld=false);
+document.getElementById('dash').addEventListener('pointerdown',e=>{e.preventDefault();dash()});
+addEventListener('keydown',e=>{let x=0,y=0;if(keys.w||keys.arrowup)y--;if(keys.s||keys.arrowdown)y++;if(keys.a||keys.arrowleft)x--;if(keys.d||keys.arrowright)x++;if(x||y){let m=Math.hypot(x,y);joy.x=x/m;joy.y=y/m}});
+addEventListener('keyup',()=>{if(!(keys.w||keys.s||keys.a||keys.d||keys.arrowup||keys.arrowdown||keys.arrowleft||keys.arrowright))joy.x=joy.y=0});
+showMsg('NEON RIFT','A polished futuristic archery battle. Aim, draw, release — survive 12 waves.','START GAME');
+</script>
+</body>
+</html>
